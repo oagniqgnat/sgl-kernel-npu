@@ -1,6 +1,7 @@
 import argparse
 import time
 from typing import Optional
+from functools import partial
 
 # noinspection PyUnresolvedReferences
 import deep_ep
@@ -15,6 +16,7 @@ from utils import (
     init_dist,
     inplace_unique,
     per_token_cast_back,
+    bench_kineto,
 )
 
 

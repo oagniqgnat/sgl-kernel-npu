@@ -1,6 +1,7 @@
 #include <memory>
 #include <cmath>
 #include <pybind11/functional.h>
+#include <chrono>
 
 #include "hccl/hccl.h"
 #include "exception.hpp"
@@ -102,6 +103,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                            int num_worst_tokens, const Config &config, std::optional<EventHandle> &previous_event,
                            bool async, bool allocate_on_comm_stream, bool use_quant)
 {
+    const auto t1 = std::chrono::high_resolution_clock::now();
     // One channel use two blocks, even-numbered blocks for sending, odd-numbered blocks for receiving.
     EP_HOST_ASSERT(config.num_sms % 2 == 0);
     int num_channels = config.num_sms / 2;
@@ -201,16 +203,19 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int64_t local_rank_id = rank % local_rank_size;
     auto new_num_tokens_per_expert = num_tokens_per_expert.value();
 
+    const auto t2 = std::chrono::high_resolution_clock::now();
     EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert, send_count, num_tokens,
                  hcom_ep_name,  // commGroup
                  num_ranks,     // rankSize
                  rank,          // rankId
                  local_rank_size, local_rank_id, send_data_offset, recv_data);
 
+    const auto t3 = std::chrono::high_resolution_clock::now();
     auto options_cpu = torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU);
     std::vector<int32_t> local_expert_acc(num_experts, 0);
-    auto send_token_idx_cpu = at::zeros({num_tokens, num_topk}, options_cpu);
+    auto send_token_idx_cpu = torch::empty({num_tokens, num_topk}, options_cpu);
     auto send_token_idx_ptr = send_token_idx_cpu.data_ptr<int>();
+    const auto t4 = std::chrono::high_resolution_clock::now();
 
     auto topk_idx_cpu = new_topk_idx.to(at::kCPU);
     auto topk_idx_ptr = topk_idx_cpu.data_ptr<int64_t>();
@@ -224,7 +229,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
             }
         }
     }
-
+    const auto t5 = std::chrono::high_resolution_clock::now();
     EP_HOST_ASSERT(recv_data.dim() == 1 and recv_data.is_contiguous());
     EP_HOST_ASSERT(recv_data.size(0) % num_experts == 0);
     at::Tensor recv_offset_cpu = at::zeros({num_experts}, options_cpu);
@@ -236,7 +241,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int total_recv_tokens = 0;
     int num_max_dispatch_tokens_per_rank = 0;
     std::vector<int> num_recv_tokens_per_expert_list;
-
+    const auto t6 = std::chrono::high_resolution_clock::now();
     for (int64_t local_e = 0; local_e < num_local_experts; ++local_e) {
         int64_t local_expert_recv_tokens = 0;
         for (int64_t src_rank = 0; src_rank < num_ranks; ++src_rank) {
@@ -256,6 +261,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         }
         num_recv_tokens_per_expert_list.push_back(local_expert_recv_tokens);
     }
+    const auto t7 = std::chrono::high_resolution_clock::now();
 
     at::Tensor expert_ids = new_topk_idx.to(at::kInt);
     int64_t tp_size = 1;
@@ -274,12 +280,25 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     auto dynamic_scales_out = at::zeros({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
     auto expand_idx_out = at::zeros({num_recv_tokens * 3}, at::dtype(at::kInt).device(x.device()));
 
+    auto t8 = std::chrono::high_resolution_clock::now();
     EXEC_NPU_CMD(aclnnCamMoeDispatchNormal, new_x, expert_ids, send_data_offset, send_token_idx, recv_offset,
                  recv_count, hcom_ep_name,
                  num_ranks,  // rankSize
                  rank,       // rankId
                  hcom_ep_name, tp_size, tp_rank, num_experts, quant_mode, global_bs, expandx_out, dynamic_scales_out,
                  expand_idx_out, dispatch_wait_recv_cost_stats_out);
+    auto t9 = std::chrono::high_resolution_clock::now();
+
+    // auto init_time = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+    // auto notify_time = std::chrono::duration_cast<std::chrono::microseconds>(t3 - t2).count();
+    // auto process_time1 = std::chrono::duration_cast<std::chrono::microseconds>(t4 - t3).count();
+    // auto process_time2 = std::chrono::duration_cast<std::chrono::microseconds>(t5 - t4).count();
+    // auto process_time3 = std::chrono::duration_cast<std::chrono::microseconds>(t6 - t5).count();
+    // auto process_time4 = std::chrono::duration_cast<std::chrono::microseconds>(t7 - t6).count();
+    // auto process_time5 = std::chrono::duration_cast<std::chrono::microseconds>(t8 - t7).count();
+    // auto dispatch_time = std::chrono::duration_cast<std::chrono::microseconds>(t9 - t8).count();
+    // auto start_time = std::chrono::duration_cast<std::chrono::microseconds>(t1.time_since_epoch()).count();
+    // printf("RANK %ld start_time %lu, init %lu NotifyDispatch %lu |process1 %lu process2 %lu process3 %lu process4 %lu process5 %lu| Dispatch %lu\n", rank, start_time, init_time, notify_time, process_time1, process_time2, process_time3, process_time4, process_time5, dispatch_time);
 
     auto recv_topk_idx = std::optional<at::Tensor>();
     auto recv_topk_weights = std::optional<at::Tensor>();

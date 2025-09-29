@@ -34,6 +34,89 @@
 #define USE_WRITE_SHUFFLE
 #endif
 
+/*cycle prof*/
+#define USE_CYCLE_PROF
+
+#ifdef USE_CYCLE_PROF
+#pragma message("Use cycle prof")
+#define CYCLE_PROF_HEADER_LEN (50 * 128)    //
+#define CYCLE_PROF_ONE_FRAME_COUNT (16)     // 每次最多支持256次打点
+#define CYCLE_PROF_MAX_FRAME       (1024)    // 最多纪录1024次
+#define CYCLE_PROF_HEADRE_COUNTER_OFFSET 4 // 头4个8字节留给其他作用
+#define DATA_FULSH(_gm_tensor, _type) \
+    AscendC::Barrier(); \
+    DataCacheCleanAndInvalid<_type, CacheLine::ENTIRE_DATA_CACHE, DcciDst::CACHELINE_OUT>(_gm_tensor);\
+    __asm__("NOP"); \
+    dsb(DSB_ALL);
+
+#define CYCLE_PROF_CLASS_DEFINE() \
+    bool enableProf_{false}; \
+    GlobalTensor<uint64_t> profHeader_; \
+    GlobalTensor<int64_t> profDataTensor_; \
+    GM_ADDR profData_{nullptr}; \
+    int64_t profTime_[CYCLE_PROF_ONE_FRAME_COUNT]{}; \
+    uint64_t profCounter_{0};
+
+#define CYCLE_PROF_INIT(__header) \
+    if (__header != nullptr) { \
+        enableProf_ = true; \
+        __gm__ uint8_t *header = ((__gm__ uint8_t *)__header); \
+        profHeader_.SetGlobalBuffer((__gm__ uint64_t *)(header + (2 + GetBlockIdx()) * 128)); \
+        DATA_FULSH(profHeader_, uint64_t); \
+        profCounter_ = profHeader_.GetValue(0); \
+        DATA_FULSH(profHeader_, uint64_t); \
+        profData_ = header + CYCLE_PROF_HEADER_LEN \
+            + (profCounter_ % CYCLE_PROF_MAX_FRAME) * (CYCLE_PROF_ONE_FRAME_COUNT * 8 * 48) \
+            + GetBlockIdx() * (CYCLE_PROF_ONE_FRAME_COUNT * 8); \
+        profDataTensor_.SetGlobalBuffer((__gm__ int64_t *)profData_); \
+    }
+
+#define CYCLE_PROF_RECORD(_id) \
+    if (enableProf_ && _id < CYCLE_PROF_ONE_FRAME_COUNT) { \
+        pipe_barrier(PIPE_ALL); \
+        auto cycle = GetSystemCycle(); \
+        profTime_[_id] = cycle; \
+    }
+
+#define CYCL_PROF_INC(_c) \
+    if (enableProf_) { \
+        profTime_[15] += (uint64_t)_c; \
+    }
+
+#define CYCLE_PROF_FINI() \
+    if (enableProf_) { \
+        tpipe_->Reset(); \
+        TBuf<> profBuf_; \
+        tpipe_->InitBuffer(profBuf_, CYCLE_PROF_ONE_FRAME_COUNT * 16); \
+        /* copy prof */ \
+        auto dataLocalTensor = profBuf_.GetWithOffset<int64_t>(CYCLE_PROF_ONE_FRAME_COUNT * 8, 0); \
+        int64_t preCycle = profTime_[0]; \
+        for (int i = 0; i < 8; ++i) { \
+            int64_t cycle = profTime_[i]; \
+            dataLocalTensor.SetValue(i, (cycle - preCycle) / 50); \
+        } \
+        pipe_barrier(PIPE_ALL); \
+        DataCopy(profDataTensor_, dataLocalTensor, CYCLE_PROF_ONE_FRAME_COUNT); \
+        pipe_barrier(PIPE_ALL); \
+        SyncAll<true>(); \
+        /* copy counter */ \
+        auto counterLocalTensor = profBuf_.GetWithOffset<uint64_t>(CYCLE_PROF_ONE_FRAME_COUNT * 8, CYCLE_PROF_ONE_FRAME_COUNT * 8); \
+        counterLocalTensor.SetValue(0, profCounter_ + 1); \
+        pipe_barrier(PIPE_ALL); \
+        DataCopy(profHeader_, counterLocalTensor, 16); \
+        pipe_barrier(PIPE_ALL); \
+        printf("[RANK %d AIC %d] Init %u InputToShare %u SetStatus %u WaitStatus1 %u WaitStatus2 %u WaitStatus3 %u ShareToOutput %u\n", epRankId, blockIdx, dataLocalTensor.GetValue(1), dataLocalTensor.GetValue(2), dataLocalTensor.GetValue(3), dataLocalTensor.GetValue(4), dataLocalTensor.GetValue(5), dataLocalTensor.GetValue(6), dataLocalTensor.GetValue(7)); \
+    }
+    // AscendC::DumpTensor(dataLocalTensor, epRankId, CYCLE_PROF_ONE_FRAME_COUNT);
+#else
+#pragma message("orignal version")
+#define CYCLE_PROF_CLASS_DEFINE()
+#define CYCLE_PROF_INIT(__head)
+#define CYCLE_PROF_RECORD(_facker_id)
+#define CYCLE_PROF_FINI()
+#define CYCL_PROF_INC(_c)
+#endif
+
 constexpr uint32_t LOCAL_NOTIFY_MAX_NUM = 64;
 constexpr uint32_t LOCAL_STREAM_MAX_NUM = 19;
 constexpr uint32_t AICPU_OP_NOTIFY_MAX_NUM = 2;

@@ -55,7 +55,7 @@ def inplace_unique(x: torch.Tensor, num_slots: int):
     x[:, :valid_len] = sorted_bin_idx[:, :valid_len]
 
 
-def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None):
+def bench(fn, num_warmups: int = 0, num_tests: int = 2, post_fn=None):
     device = torch.device("npu")
     torch.npu.synchronize()
 

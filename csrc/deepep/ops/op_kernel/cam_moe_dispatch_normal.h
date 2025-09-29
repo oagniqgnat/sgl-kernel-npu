@@ -47,6 +47,8 @@ public:
                                 const CamMoeDispatchNormalTilingData *tilingData);
     __aicore__ inline void Process();
 
+    CYCLE_PROF_CLASS_DEFINE();
+
 private:
     __aicore__ inline void InputToShare();
     __aicore__ inline void SetStatus();
@@ -168,6 +170,8 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(
     GM_ADDR expandXOut, GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut, GM_ADDR waitRecvCostStatsOut,
     GM_ADDR workspaceGM, TPipe *pipe, const CamMoeDispatchNormalTilingData *tilingData)
 {
+    CYCLE_PROF_INIT(workspaceGM);
+    CYCLE_PROF_RECORD(0);
     tpipe_ = pipe;
     blockIdx = GetBlockIdx();
 
@@ -189,6 +193,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(
     moeExpertNum = tilingData->camMoeDispatchNormalInfo.moeExpertNum;
     moeExpertNumPerRank = moeExpertNum / epRankSize;
     isEnableDiagnose = tilingData->camMoeDispatchNormalInfo.isEnableDiagnose;
+    // printf("[RANK %d AIC %d] START %u\n", epRankId, blockIdx, GetSystemCycle() / 50);
 
     xGT.SetGlobalBuffer((__gm__ XType *)x);
     expertIdsGT.SetGlobalBuffer((__gm__ int32_t *)expertIds);
@@ -204,15 +209,15 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(
 
     expandXOutGM = expandXOut;
 
-    hUBAlignSize = Ceil(h * sizeof(ExpandXOutType), UB_ALIGN) * UB_ALIGN;
-    uint32_t hScaleSizeAlign = hUBAlignSize + UB_ALIGN;
-    expandIdxStartIdx = hScaleSizeAlign / sizeof(int32_t);
+    hUBAlignSize = Ceil(h * sizeof(ExpandXOutType), UB_ALIGN) * UB_ALIGN; // 7168 * 2
+    uint32_t hScaleSizeAlign = hUBAlignSize + UB_ALIGN; // 7168 * 2 + 32
+    expandIdxStartIdx = hScaleSizeAlign / sizeof(int32_t); // (7168 * 2 + 32) / 4 = 3592
 
-    uint32_t hScaleIdxSize = hScaleSizeAlign + EXPAND_IDX_INFO * sizeof(int32_t);
-    hOutGMAlignSize = Ceil(hScaleIdxSize, WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
-    hGMAlignCnt = hOutGMAlignSize / sizeof(ExpandXOutType);
+    uint32_t hScaleIdxSize = hScaleSizeAlign + EXPAND_IDX_INFO * sizeof(int32_t); // 7168 * 2 + 32 + 4 * 3 = 14380
+    hOutGMAlignSize = Ceil(hScaleIdxSize, WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN; // Ceil(14380, 512) * 512 = 14848
+    hGMAlignCnt = hOutGMAlignSize / sizeof(ExpandXOutType); // 14848 / 2 = 7424
 
-    expertIdsCnt = batchSize * topK;
+    expertIdsCnt = batchSize * topK; // 4096 * 9 | 4096 * 8
     statusNumPerCore = moeExpertNum / blockNum;
     remainStatus = moeExpertNum % blockNum;
     startStatusId = statusNumPerCore * blockIdx;
@@ -489,6 +494,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::WaitStatus()
         systemCycleStart = GetSystemCycle();
     }
 
+    CYCLE_PROF_RECORD(4);
     SyncFunc<AscendC::HardEvent::S_V>();
     while (sumOfFlag != compareTarget) {
         DataCopy(statusFp32Tensor, windowInstatusFp32Tensor[startStatusId * stateOffset / sizeof(float)], intriParams);
@@ -496,6 +502,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::WaitStatus()
         ReduceSum(statusSumOutTensor, statusFp32Tensor, gatherMaskOutTensor, mask, statusNumPerCore, 1);
         SyncFunc<AscendC::HardEvent::V_S>();
         sumOfFlag = statusSumOutTensor.GetValue(0);
+        printf("[RANK %d AIC %d] sumOfFlag %f compareTarget %f\n", epRankId, blockIdx, sumOfFlag, compareTarget);
 
         if (isEnableDiagnose) {
             int32_t durationTime = static_cast<int32_t>((GetSystemCycle() - systemCycleStart) / CYCLE_TO_TIME);  // us
@@ -515,7 +522,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::WaitStatus()
             }
         }
     }
-
+    CYCLE_PROF_RECORD(5);
     if (isEnableDiagnose) {
         // copy waitRecvCostStats from UB to GM
         SyncFunc<AscendC::HardEvent::S_MTE3>();
@@ -592,12 +599,18 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ShareToOutput()
 template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Process()
 {
+    CYCLE_PROF_RECORD(1);
     if ASCEND_IS_AIV {
         InputToShare();
+        CYCLE_PROF_RECORD(2);
         SetStatus();
+        CYCLE_PROF_RECORD(3);
         WaitStatus();
+        CYCLE_PROF_RECORD(6);
         ShareToOutput();
+        CYCLE_PROF_RECORD(7);
     }
+    CYCLE_PROF_FINI();
 }
 
 }  // namespace CamMoeDispatchNormalImpl
