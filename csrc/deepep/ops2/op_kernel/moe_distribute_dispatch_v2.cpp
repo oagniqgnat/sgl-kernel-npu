@@ -53,17 +53,11 @@ extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(GM_ADDR x, GM_A
                 epSendCountsOut, workspaceGM, &pipe, tilingGM);
         op.Process();
     } else if (TILING_KEY_IS(2100001000)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        GM_ADDR contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
-        DataplaneMode dataplaneMode = GetDataplaneMode(contextGM0);
-        if (dataplaneMode == DataplaneMode::AIV) {
-            MoeDistributeDispatchV2Layered<DTYPE_X, DTYPE_EXPAND_X, false, false, false> op;
-            op.Init(x, expertIds, scales, expandXOut, dynamicScalesOut, assistInfoOut, expertTokenNumsOut,
-                    epSendCountsOut, workspaceGM, &pipe, tilingGM, contextGM0);
-            op.Process();
-        } else {
-            assert(false, "The driver version is too low and does not support layered mode.\n");
-        }
+        printf("enter MoeDistributeDispatchV2Layered init start ~~\n");
+        MoeDistributeDispatchV2Layered<DTYPE_X, DTYPE_EXPAND_X, false, false, false> op;
+        op.Init(x, expertIds, scales, expandXOut, dynamicScalesOut, assistInfoOut, expertTokenNumsOut,
+                epSendCountsOut, workspaceGM, &pipe, tilingGM);
+        op.Process();
     } else if (TILING_KEY_IS(2000011000)) {  // single server
         printf("====enter dispatch single...\n");
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
@@ -86,29 +80,17 @@ extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(GM_ADDR x, GM_A
                 epSendCountsOut, workspaceGM, &pipe, tilingGM);
         op.Process();
     } else if (TILING_KEY_IS(2100001002)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        GM_ADDR contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
-        DataplaneMode dataplaneMode = GetDataplaneMode(contextGM0);
-        if (dataplaneMode == DataplaneMode::AIV) {
-            MoeDistributeDispatchV2Layered<DTYPE_X, DTYPE_EXPAND_X, false, true, false> op;
-            op.Init(x, expertIds, scales, expandXOut, dynamicScalesOut, assistInfoOut, expertTokenNumsOut,
-                    epSendCountsOut, workspaceGM, &pipe, tilingGM, contextGM0);
-            op.Process();
-        } else {
-            assert(false, "The driver version is too low and does not support layered mode.\n");
-        }
+        printf("enter MoeDistributeDispatchV2Layered init start ~~\n");
+        MoeDistributeDispatchV2Layered<DTYPE_X, DTYPE_EXPAND_X, false, true, false> op;
+        op.Init(x, expertIds, scales, expandXOut, dynamicScalesOut, assistInfoOut, expertTokenNumsOut,
+                epSendCountsOut, workspaceGM, &pipe, tilingGM);
+        op.Process();
     } else if (TILING_KEY_IS(2100001012)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        GM_ADDR contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
-        DataplaneMode dataplaneMode = GetDataplaneMode(contextGM0);
-        if (dataplaneMode == DataplaneMode::AIV) {
-            MoeDistributeDispatchV2Layered<DTYPE_X, DTYPE_EXPAND_X, false, true, true> op;
-            op.Init(x, expertIds, scales, expandXOut, dynamicScalesOut, assistInfoOut, expertTokenNumsOut,
-                    epSendCountsOut, workspaceGM, &pipe, tilingGM, contextGM0);
-            op.Process();
-        } else {
-            assert(false, "The driver version is too low and does not support layered mode.\n");
-        }
+        printf("enter MoeDistributeDispatchV2Layered init start ~~\n");
+        MoeDistributeDispatchV2Layered<DTYPE_X, DTYPE_EXPAND_X, false, true, true> op;
+        op.Init(x, expertIds, scales, expandXOut, dynamicScalesOut, assistInfoOut, expertTokenNumsOut,
+                epSendCountsOut, workspaceGM, &pipe, tilingGM);
+        op.Process();
     } else if (TILING_KEY_IS(2000011002)) {  // single server + quant
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
         MoeDistributeDispatchV2Single<DTYPE_X, DTYPE_EXPAND_X, false, true, false, false, false> op;

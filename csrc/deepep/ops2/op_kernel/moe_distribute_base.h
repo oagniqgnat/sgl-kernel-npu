@@ -294,7 +294,7 @@ enum class DataplaneMode : uint32_t {
     AIV = 2,
 };
 
-enum class DBMode : int32_t { INVALID_DB = -1, HW_DB = 0, SW_DB };
+enum class DBMode_ : int32_t { INVALID_DB = -1, HW_DB = 0, SW_DB };
 
 struct HcclAiRMAWQ {
     uint32_t wqn{0};
@@ -303,7 +303,7 @@ struct HcclAiRMAWQ {
     uint32_t depth{0};
     uint64_t headAddr{0};
     uint64_t tailAddr{0};
-    DBMode dbMode{DBMode::INVALID_DB};  // 0-hw/1-sw
+    DBMode_ DBMode_{DBMode_::INVALID_DB};  // 0-hw/1-sw
     uint64_t dbAddr{0};
     uint32_t sl{0};
 };
@@ -315,7 +315,7 @@ struct HcclAiRMACQ {
     uint32_t depth{0};
     uint64_t headAddr{0};
     uint64_t tailAddr{0};
-    DBMode dbMode{DBMode::INVALID_DB};  // 0-hw/1-sw
+    DBMode_ DBMode_{DBMode_::INVALID_DB};  // 0-hw/1-sw
     uint64_t dbAddr{0};
 };
 
@@ -335,7 +335,7 @@ struct hns_roce_lite_wqe_data_seg {
     uint64_t localVA;
 };
 
-__aicore__ inline void cacheWriteThrough(__gm__ uint8_t *sourceAddr, uint64_t length)
+__aicore__ inline void cacheWriteThrough_(__gm__ uint8_t *sourceAddr, uint64_t length)
 {
     __gm__ uint8_t *start =
         (__gm__ uint8_t *)((uint64_t)sourceAddr / AscendC::CACHE_LINE_SIZE * AscendC::CACHE_LINE_SIZE);

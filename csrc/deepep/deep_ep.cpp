@@ -2,6 +2,7 @@
 #include <cmath>
 #include <pybind11/functional.h>
 
+#include "shmem.hpp"
 #include "hccl/hccl.h"
 #include "exception.hpp"
 #include "deep_ep.hpp"
@@ -27,7 +28,6 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
       low_latency_mode(low_latency_mode),
       moe_all_to_all_group_name(moe_all_to_all_group_name)
 {
-    rdma_rank = rank;
     EP_HOST_ASSERT(0 <= rank and rank < num_ranks);
 
     if (moe_all_to_all_group_name.empty()) {
@@ -54,9 +54,22 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
         rdma_rank = rank / A2_MAX_HCCS_PEERS;
         nvl_rank = rank % A2_MAX_HCCS_PEERS;
     }
+
+    size_t local_mem_size = 4 * 1024 * 1024 * 1024UL;
+    size_t malloc_mem_size = 2 * 1024 * 1024 * 1024UL;
+    EP_HOST_ASSERT(rank == internode::init(rank, num_ranks, local_mem_size, "tcp://141.61.41.76:11222"));
+    rdma_buffer_ptr = internode::alloc(malloc_mem_size, NUM_BUFFER_ALIGNMENT_BYTES);
+    std::cout << "rank: " << rank << ", num_ranks: " << num_ranks << ", rdma_buffer_ptr: " << rdma_buffer_ptr << std::endl;
 }
 
-Buffer::~Buffer() noexcept(false) {}
+Buffer::~Buffer() noexcept(false)
+{
+    std::cout << "rank " << rank << " ~Buffer" << std::endl;
+    internode::free(rdma_buffer_ptr);
+    std::cout << "rank " << rank << " free done!!!" << std::endl;
+    internode::finalize();
+    std::cout << "rank " << rank << " finalize done!!!" << std::endl;
+}
 
 bool Buffer::is_available() const
 {
@@ -707,6 +720,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                              int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, bool use_fp8,
                              bool round_scale, bool use_ue8m0, bool async, bool return_recv_hook)
 {
+    std::cout << "1 rank " << rank << " low_latency_dispatch start~" << std::endl;
     this->is_padding = false;
     EP_HOST_ASSERT(low_latency_mode);
     at::Tensor new_x = x;
@@ -803,7 +817,9 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         EP_HOST_ASSERT(isLayered == false);
         active_mask = (new_topk_idx >= 0).to(torch::kBool);
     }
+    int64_t shmem_ptr = reinterpret_cast<int64_t>(rdma_buffer_ptr);
 
+    std::cout << "2 rank " << rank << " low_latency_dispatch kernel start~" << std::endl;
     EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2, new_x, new_topk_idx,
                  scales,        // smooth scales,
                  active_mask,   // active_mask
@@ -820,11 +836,12 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                  quant_mode,
                  global_bs,               // global_bs
                  expert_token_nums_type,  // expert_token_nums_type
-                 comm_alg, packed_recv_x,
+                 comm_alg, shmem_ptr, packed_recv_x,
                  packed_recv_x_scales,  // dynamicScalesOut
                  expandIdx,
                  packed_recv_count,  // expertTokenNumsOut
                  ep_recv_count, tp_recv_count);
+    std::cout << "3 rank " << rank << " low_latency_dispatch kernel done!" << std::endl;
 
     // Return values
     return {packed_recv_x, packed_recv_x_scales,        packed_recv_count, expandIdx, ep_recv_count,

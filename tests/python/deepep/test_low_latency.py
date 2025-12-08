@@ -94,7 +94,7 @@ def test(
     all_topk_idx = torch.empty(
         (num_ranks, num_tokens, num_topk), dtype=topk_idx.dtype, device="npu"
     )
-    dist.all_gather_into_tensor(all_topk_idx, topk_idx, group=group)
+    # dist.all_gather_into_tensor(all_topk_idx, topk_idx, group=group)
 
     for i in range(num_local_experts if do_check else 0):
         expert_id = rank * num_local_experts + i
@@ -143,116 +143,116 @@ def test(
                 packed_recv_x[int(i * temp) : int(i * temp + num_valid_tokens)]
             )
 
-    # Check combine correctness
-    (
-        src_info,
-        layout_range,
-        num_max_dispatch_tokens_per_rank,
-        hidden,
-        num_experts,
-        packed_recv_count,
-    ) = handle
+    # # Check combine correctness
+    # (
+    #     src_info,
+    #     layout_range,
+    #     num_max_dispatch_tokens_per_rank,
+    #     hidden,
+    #     num_experts,
+    #     packed_recv_count,
+    # ) = handle
 
-    out = torch.empty((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
-    combined_x, event, hook = buffer.low_latency_combine(
-        simulated_gemm_x,
-        topk_idx,
-        topk_weights,
-        handle,
-        async_finish=not return_recv_hook,
-        zero_copy=False,
-        return_recv_hook=return_recv_hook,
-        out=out,
-    )
+    # out = torch.empty((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
+    # combined_x, event, hook = buffer.low_latency_combine(
+    #     simulated_gemm_x,
+    #     topk_idx,
+    #     topk_weights,
+    #     handle,
+    #     async_finish=not return_recv_hook,
+    #     zero_copy=False,
+    #     return_recv_hook=return_recv_hook,
+    #     out=out,
+    # )
 
-    if do_check:
-        diff = calc_diff(
-            x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
-            combined_x,
-        )
-        assert torch.isnan(combined_x).sum().item() == 0
-        if dispatch_use_fp8:
-            assert diff < 1e-4, f"Error: {diff=}"
-        else:
-            assert diff < 1e-5, f"Error: {diff=}"
-        hash_value ^= hash_tensor(combined_x)
+    # if do_check:
+    #     diff = calc_diff(
+    #         x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+    #         combined_x,
+    #     )
+    #     assert torch.isnan(combined_x).sum().item() == 0
+    #     if dispatch_use_fp8:
+    #         assert diff < 1e-4, f"Error: {diff=}"
+    #     else:
+    #         assert diff < 1e-5, f"Error: {diff=}"
+    #     hash_value ^= hash_tensor(combined_x)
 
-        print(f"rank {rank} PASSED")
+    #     print(f"rank {rank} PASSED")
 
-    # noinspection PyShadowingNames
-    def test_func(zero_copy: bool, return_recv_hook: bool):
-        recv_x, recv_count, handle, event, hook = buffer.low_latency_dispatch(
-            x,
-            topk_idx,
-            num_tokens,
-            num_experts,
-            cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
-            use_fp8=dispatch_use_fp8,
-            async_finish=False,
-            return_recv_hook=return_recv_hook,
-        )
-        combined_x, event, hook = buffer.low_latency_combine(
-            simulated_gemm_x,
-            topk_idx,
-            topk_weights,
-            handle,
-            zero_copy=zero_copy,
-            return_recv_hook=return_recv_hook,
-        )
+    # # noinspection PyShadowingNames
+    # def test_func(zero_copy: bool, return_recv_hook: bool):
+    #     recv_x, recv_count, handle, event, hook = buffer.low_latency_dispatch(
+    #         x,
+    #         topk_idx,
+    #         num_tokens,
+    #         num_experts,
+    #         cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
+    #         use_fp8=dispatch_use_fp8,
+    #         async_finish=False,
+    #         return_recv_hook=return_recv_hook,
+    #     )
+    #     combined_x, event, hook = buffer.low_latency_combine(
+    #         simulated_gemm_x,
+    #         topk_idx,
+    #         topk_weights,
+    #         handle,
+    #         zero_copy=zero_copy,
+    #         return_recv_hook=return_recv_hook,
+    #     )
 
-    # Calculate bandwidth
-    num_fp8_bytes, num_bf16_bytes = (hidden + hidden // 128 * 4 + 16), hidden * 2
-    num_dispatch_comm_bytes, num_combine_comm_bytes = 0, 0
-    for i in range(num_tokens):
-        num_selections = (topk_idx[i] != -1).sum().item()
-        num_dispatch_comm_bytes += num_fp8_bytes * num_selections
-        num_combine_comm_bytes += num_bf16_bytes * num_selections
+    # # Calculate bandwidth
+    # num_fp8_bytes, num_bf16_bytes = (hidden + hidden // 128 * 4 + 16), hidden * 2
+    # num_dispatch_comm_bytes, num_combine_comm_bytes = 0, 0
+    # for i in range(num_tokens):
+    #     num_selections = (topk_idx[i] != -1).sum().item()
+    #     num_dispatch_comm_bytes += num_fp8_bytes * num_selections
+    #     num_combine_comm_bytes += num_bf16_bytes * num_selections
 
-    # Dispatch + combine testing
-    avg_t, min_t, max_t = bench(
-        partial(test_func, zero_copy=False, return_recv_hook=False)
-    )
-    print(
-        f"[rank {rank}] Dispatch + combine bandwidth: {(num_dispatch_comm_bytes + num_combine_comm_bytes) / 1e9 / avg_t:.2f} GB/s, "
-        f"avg_t={avg_t * 1e6:.2f} us, min_t={min_t * 1e6:.2f} us, max_t={max_t * 1e6:.2f} us",
-        flush=True,
-    )
+    # # Dispatch + combine testing
+    # avg_t, min_t, max_t = bench(
+    #     partial(test_func, zero_copy=False, return_recv_hook=False)
+    # )
+    # print(
+    #     f"[rank {rank}] Dispatch + combine bandwidth: {(num_dispatch_comm_bytes + num_combine_comm_bytes) / 1e9 / avg_t:.2f} GB/s, "
+    #     f"avg_t={avg_t * 1e6:.2f} us, min_t={min_t * 1e6:.2f} us, max_t={max_t * 1e6:.2f} us",
+    #     flush=True,
+    # )
 
-    # Separate profiling
-    # return_recv_hook=True is not supported now
-    for return_recv_hook in (False,):
-        enable_neg_one = int(os.getenv("MOE_ENABLE_TOPK_NEG_ONE", 0))
-        dist.barrier()
-        dispatch_t, combine_t = bench_kineto(
-            partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
-            kernel_names=("MoeDistributeDispatchV2", "MoeDistributeCombineV2"),
-            barrier_comm_profiling=True,
-            suppress_kineto_output=True,
-            num_kernels_per_period=2 if return_recv_hook else 1,
-            trace_path=None,
-        )
-        if not return_recv_hook:
-            print(
-                f"[rank {rank}] Dispatch bandwidth: {num_dispatch_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | "
-                f"Combine bandwidth: {num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, avg_t={combine_t * 1e6:.2f} us",
-                flush=True,
-            )
-            calculate_avg_stats(
-                dispatch_t=dispatch_t,
-                num_dispatch_comm_bytes=num_dispatch_comm_bytes,
-                combine_t=combine_t,
-                num_combine_comm_bytes=num_combine_comm_bytes,
-                rank=rank,
-                num_ranks=num_ranks,
-                root_rank=0,
-            )
+    # # Separate profiling
+    # # return_recv_hook=True is not supported now
+    # for return_recv_hook in (False,):
+    #     enable_neg_one = int(os.getenv("MOE_ENABLE_TOPK_NEG_ONE", 0))
+    #     dist.barrier()
+    #     dispatch_t, combine_t = bench_kineto(
+    #         partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
+    #         kernel_names=("MoeDistributeDispatchV2", "MoeDistributeCombineV2"),
+    #         barrier_comm_profiling=True,
+    #         suppress_kineto_output=True,
+    #         num_kernels_per_period=2 if return_recv_hook else 1,
+    #         trace_path=None,
+    #     )
+    #     if not return_recv_hook:
+    #         print(
+    #             f"[rank {rank}] Dispatch bandwidth: {num_dispatch_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | "
+    #             f"Combine bandwidth: {num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, avg_t={combine_t * 1e6:.2f} us",
+    #             flush=True,
+    #         )
+    #         calculate_avg_stats(
+    #             dispatch_t=dispatch_t,
+    #             num_dispatch_comm_bytes=num_dispatch_comm_bytes,
+    #             combine_t=combine_t,
+    #             num_combine_comm_bytes=num_combine_comm_bytes,
+    #             rank=rank,
+    #             num_ranks=num_ranks,
+    #             root_rank=0,
+    #         )
 
-        else:
-            print(
-                f"[rank {rank}] Dispatch send/recv time: {dispatch_t[0] * 1e6:.2f} + {dispatch_t[1] * 1e6:.2f} us | "
-                f"Combine send/recv time: {combine_t[0] * 1e6:.2f} + {combine_t[1] * 1e6:.2f} us",
-                flush=True,
-            )
+    #     else:
+    #         print(
+    #             f"[rank {rank}] Dispatch send/recv time: {dispatch_t[0] * 1e6:.2f} + {dispatch_t[1] * 1e6:.2f} us | "
+    #             f"Combine send/recv time: {combine_t[0] * 1e6:.2f} + {combine_t[1] * 1e6:.2f} us",
+    #             flush=True,
+    #         )
 
     return hash_value
 

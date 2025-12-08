@@ -256,7 +256,7 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
     auto sqBaseAddr = qp_ctx_entry->bufAddr;
     auto wqeSize = qp_ctx_entry->wqeSize;
     auto curHardwareHead = qp_ctx_entry->headAddr;
-    cacheWriteThrough((__gm__ uint8_t *)curHardwareHead, 8);
+    cacheWriteThrough_((__gm__ uint8_t *)curHardwareHead, 8);
     uint64_t curHead = *(__gm__ uint32_t *)(curHardwareHead);
     auto curHardwareTailAddr = qp_ctx_entry->tailAddr;
     uint64_t shift = 15U;
@@ -267,7 +267,7 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
     // Make sure we don't overflow the SQ in an infinite loop - no need to mitigate endless loop as the host
     // will timeout and kill the kernel, same as all2all kernel if it fails to complete (e.g. in case of link loss)
     while (1) {
-        cacheWriteThrough((__gm__ uint8_t *)curHardwareTailAddr, 8);
+        cacheWriteThrough_((__gm__ uint8_t *)curHardwareTailAddr, 8);
         if ((curHead - *(__gm__ uint32_t *)(curHardwareTailAddr)) < QP_DEPTH - 1) {
             break;
         }
@@ -306,7 +306,7 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
         (uint64_t)srcDmaAddr;  // src VA addr memory registered by RNIC
 
     // wqe & sge cache flush
-    cacheWriteThrough(wqeAddr, sizeof(struct hns_roce_rc_sq_wqe) + sizeof(struct hns_roce_lite_wqe_data_seg));
+    cacheWriteThrough_(wqeAddr, sizeof(struct hns_roce_rc_sq_wqe) + sizeof(struct hns_roce_lite_wqe_data_seg));
     PipeBarrier<PIPE_ALL>();
     curHead++;
 

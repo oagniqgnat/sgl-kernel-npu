@@ -20,7 +20,6 @@ struct Buffer {
     op::SocVersion soc_version;
 
     int64_t num_nvl_bytes;
-    int64_t num_rdma_bytes;
 
     bool low_latency_mode = false;
     bool is_padding = false;
@@ -36,6 +35,8 @@ struct Buffer {
     int64_t shared_expert_num = 1;
 
 private:
+    int64_t num_rdma_bytes;
+    void* rdma_buffer_ptr = nullptr;
     std::string moe_all_to_all_group_name;
 
     int device_id;

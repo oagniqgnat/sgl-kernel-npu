@@ -79,6 +79,7 @@ constexpr uint32_t ATTR_COMM_ALG_INDEX = 13;
 constexpr uint32_t ATTR_ZERO_EXPERT_NUM_INDEX = 14;
 constexpr uint32_t ATTR_COPY_EXPERT_NUM_INDEX = 15;
 constexpr uint32_t ATTR_CONST_EXPERT_NUM_INDEX = 16;
+constexpr uint32_t ATTR_SHMEM_PTR_INDEX = 17;
 
 constexpr uint32_t TWO_DIMS = 2;
 constexpr uint32_t ONE_DIM = 1;
@@ -1030,6 +1031,7 @@ static ge::graphStatus MoeDistributeDispatchA2CheckAttrAndSetTiling(gert::Tiling
     auto zeroExpertNumPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_ZERO_EXPERT_NUM_INDEX));
     auto copyExpertNumPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_COPY_EXPERT_NUM_INDEX));
     auto constExpertNumPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_CONST_EXPERT_NUM_INDEX));
+    auto shmemPtrPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_SHMEM_PTR_INDEX));
 
     const gert::StorageShape *expertIdStorageShape = context->GetInputShape(EXPERT_IDS_INDEX);
     OP_TILING_CHECK(expertIdStorageShape == nullptr, OP_LOGE(K_INNER_DEBUG, "expertIdShape is null."),
@@ -1089,6 +1091,8 @@ static ge::graphStatus MoeDistributeDispatchA2CheckAttrAndSetTiling(gert::Tiling
     info.sharedExpertRankNum = static_cast<uint32_t>(0);
     info.moeExpertNum = *moeExpertNumPtr;
     info.quantMode = *quantModePtr;
+    info.shmemPtr = static_cast<uint64_t>(*shmemPtrPtr);
+
     if (*globalBsPtr == 0) {
         info.globalBs = *epWorldSizePtr * bs;
     } else {
@@ -1107,6 +1111,7 @@ static ge::graphStatus MoeDistributeDispatchA2CheckAttrAndSetTiling(gert::Tiling
     OP_LOGD(K_INNER_DEBUG, "epRankId=%d", info.epRankId);
     OP_LOGD(K_INNER_DEBUG, "tpRankId=%d", info.tpRankId);
     OP_LOGD(K_INNER_DEBUG, "zeroComputeExpertNum=%d", info.zeroComputeExpertNum);
+    OP_LOGD(K_INNER_DEBUG, "shmemPtr=%lu", info.shmemPtr);
 
     return ge::GRAPH_SUCCESS;
 }
@@ -1277,7 +1282,7 @@ static uint64_t MoeDistributeDispatchA2CalcTilingKey(gert::TilingContext *contex
 static ge::graphStatus MoeDistributeDispatchA2TilingFuncImpl(gert::TilingContext *context)
 {
     const char *nodeName = context->GetNodeName();
-    OP_LOGI(nodeName, "Enter MoeDistributeDispatchV2 tiling func.");
+    OP_LOGD(nodeName, "Enter MoeDistributeDispatchV2 tiling func.");
 
     bool isSingleServer = false;
     OP_TILING_CHECK(
@@ -1338,25 +1343,14 @@ static ge::graphStatus MoeDistributeDispatchA2TilingFuncImpl(gert::TilingContext
     AscendC::Mc2CcTilingConfig mc2CcTilingConfig(group, opType, algConfig);
     mc2CcTilingConfig.GetTiling(tilingData->mc2InitTiling);
     mc2CcTilingConfig.GetTiling(tilingData->mc2CcTiling);
-
-    OP_LOGI(nodeName, "Leave MoeDistributeDispatchV2 tiling func.");
+    uint64_t maxWindowSize = mc2tiling::Mc2TilingUtils::GetMaxWindowSize();
+    OP_LOGD(nodeName, "Leave MoeDistributeDispatchV2 tiling func.");
     return ge::GRAPH_SUCCESS;
 }
 
 static ge::graphStatus MoeDistributeDispatchV2TilingFunc(gert::TilingContext *context)
 {
-    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
-    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
-
-    std::string socVersion;
-    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
-    ge::graphStatus ret;
-    if (socVersion == "Ascend910B") {
-        ret = MoeDistributeDispatchA2TilingFuncImpl(context);
-    } else {
-        // ret = MoeDistributeDispatchA3TilingFuncImpl(context);
-    }
-    return ret;
+    return MoeDistributeDispatchA2TilingFuncImpl(context);
 }
 
 struct MoeDistributeDispatchCompileInfo {};

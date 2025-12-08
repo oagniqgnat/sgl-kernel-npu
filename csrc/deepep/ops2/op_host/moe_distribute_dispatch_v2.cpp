@@ -27,6 +27,7 @@ class MoeDistributeDispatchV2 : public OpDef
 public:
     explicit MoeDistributeDispatchV2(const char *name) : OpDef(name)
     {
+        printf("xxxMoeDistributeDispatchV2:OpDef start %s\n", name);
         this->Input("x")
             .ParamType(REQUIRED)
             .DataType({ge::DT_BF16, ge::DT_BF16, ge::DT_FLOAT16, ge::DT_FLOAT16})
@@ -106,6 +107,7 @@ public:
         this->Attr("zero_expert_num").AttrType(OPTIONAL).Int(0);
         this->Attr("copy_expert_num").AttrType(OPTIONAL).Int(0);
         this->Attr("const_expert_num").AttrType(OPTIONAL).Int(0);
+        this->Attr("shmem_ptr").AttrType(OPTIONAL).Int(0);
 
         OpAICoreConfig aicore_config_A2;
         aicore_config_A2.DynamicCompileStaticFlag(true)
@@ -121,6 +123,7 @@ public:
 
         this->AICore().AddConfig("ascend910b", aicore_config_A2);
         this->MC2().HcclGroup({"group_ep"});
+        printf("xxxMoeDistributeDispatchV2:OpDef end %s\n", name);
     }
 };
 
