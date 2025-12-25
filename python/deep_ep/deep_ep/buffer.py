@@ -387,6 +387,95 @@ class Buffer:
 
         # noinspection PyTypeChecker
 
+    @log_parameters(["topk_idx"])
+    def notify_verify(
+        self,
+        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+        handle: Optional[Tuple] = None,
+        num_tokens_per_rank: Optional[torch.Tensor] = None,
+        num_tokens_per_rdma_rank: Optional[torch.Tensor] = None,
+        is_token_in_rank: Optional[torch.Tensor] = None,
+        num_tokens_per_expert: Optional[torch.Tensor] = None,
+        topk_idx: Optional[torch.Tensor] = None,
+        topk_weights: Optional[torch.Tensor] = None,
+        expert_alignment: int = 1,
+        num_worst_tokens: int = 0,
+        config: Optional[Config] = None,
+        previous_event: Optional[EventOverlap] = None,
+        async_finish: bool = False,
+        allocate_on_comm_stream: bool = False,
+        dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+    ) -> Tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]:
+        # Default config
+        config = self.get_dispatch_config(self.group_size) if config is None else config
+        # Launch the kernel with cached or non-cached mode
+        if isinstance(x, tuple):
+            raise NotImplementedError("Not support fp8")
+        x_scales = None
+        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+
+        if handle is not None:
+            raise NotImplementedError(
+                "Optional communication handle is not supported yet."
+            )
+        else:
+            assert (
+                num_tokens_per_rank is not None
+                and is_token_in_rank is not None
+                and num_tokens_per_expert is not None
+            )
+            (
+                recv_data,
+                recv_count,
+                recv_offset,
+                expert_global_offset,
+                srcrank_in_expert_offset,
+                C,
+                total_recv_token,
+                max_bs,
+                recv_tokens_per_expert,
+            ) = self.runtime.notify_verify(
+                x,
+                x_scales,
+                topk_idx,
+                topk_weights,
+                num_tokens_per_rank,
+                is_token_in_rank,
+                num_tokens_per_expert,
+                0,
+                None,
+                None,
+                dispatch_wait_recv_cost_stats,
+                expert_alignment,
+                num_worst_tokens,
+                config,
+                getattr(previous_event, "event", None),
+                async_finish,
+                allocate_on_comm_stream,
+                use_quant,
+            )
+            return (
+                recv_data,
+                recv_count,
+                recv_offset,
+                expert_global_offset,
+                srcrank_in_expert_offset,
+                C,
+                total_recv_token,
+                max_bs,
+                recv_tokens_per_expert,
+            )
+
     @log_parameters()
     def combine(
         self,
@@ -590,7 +679,6 @@ class Buffer:
         topk_idx: torch.Tensor,
         num_max_dispatch_tokens_per_rank: int,
         num_experts: int,
-        topk_weights: Optional[torch.Tensor] = None,
         cumulative_local_expert_recv_stats: Optional[torch.Tensor] = None,
         use_fp8: bool = True,
         round_scale: bool = False,
@@ -647,13 +735,11 @@ class Buffer:
             packed_recv_count,
             packed_recv_src_info,
             packed_recv_layout_range,
-            expand_scales,
             event,
             hook,
         ) = self.runtime.low_latency_dispatch(
             x,
             topk_ids,
-            topk_weights,
             cumulative_local_expert_recv_stats,
             num_max_dispatch_tokens_per_rank,
             num_experts,
@@ -670,7 +756,6 @@ class Buffer:
             x.size(1),
             num_experts,
             packed_recv_count,
-            expand_scales,
         )
         tensors_to_record = (
             x,
@@ -735,7 +820,6 @@ class Buffer:
             hidden,
             num_experts,
             packed_recv_count,
-            expand_scales,
         ) = handle
         combined_x, event, hook = self.runtime.low_latency_combine(
             x,
@@ -750,7 +834,6 @@ class Buffer:
             async_finish,
             return_recv_hook,
             out,
-            expand_scales,
         )
         tensors_to_record = (
             x,

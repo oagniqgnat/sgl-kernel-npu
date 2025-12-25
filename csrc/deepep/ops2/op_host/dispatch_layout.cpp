@@ -17,6 +17,7 @@ public:
         this->Attr("num_experts").Int();
         this->Attr("num_topk").Int();
         this->Attr("local_ranksize").Int();
+        this->Attr("per_round_tokens").Int();
 
         this->Output("numTokensPerRank")
             .ParamType(REQUIRED)
@@ -34,6 +35,11 @@ public:
             .Format({ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND});
         this->Output("notifySendData")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_INT32})
+            .Format({ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND});
+        this->Output("sendTokenIdxSmall")
             .ParamType(REQUIRED)
             .DataType({ge::DT_INT32})
             .Format({ge::FORMAT_ND})

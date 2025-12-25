@@ -31,7 +31,7 @@ public:
     constexpr static uint32_t IPC_DATA_OFFSET = 4U * 1024U * 1024U;
     constexpr static uint32_t IPC_DISPATCH_DATA_OFFSET = 2U * 1024U * 1024U;
     constexpr static uint32_t NOTIFY_DATA_SIZE = 400U * 1024U * 1024U;
-    constexpr static uint32_t RDMA_DATA_SIZE = 300U * 1024U * 1024U;
+    constexpr static uint32_t RDMA_DATA_SIZE = 800U * 1024U * 1024U;
     constexpr static uint32_t EXTRA_TOKEN_INFO_NUM = 4U;  // 专家信息 权重信息 量化Scale 到达标志位
     constexpr static uint64_t MB_SIZE = 1024UL * 1024UL;
     constexpr static uint32_t MAX_BS = 4096;  // 每卡支持的最大bs
@@ -341,14 +341,12 @@ __aicore__ inline void MoeDistributeCombineA2Layered<TemplateMC2TypeA2layeredFun
 template <TemplateMC2TypeA2layeredClass>
 __aicore__ inline void MoeDistributeCombineA2Layered<TemplateMC2TypeA2layeredFunc>::AlltoAllDispatch()
 {
-    PRINTF("enter AlltoAllDispatch \n");
     rowTmpFloatLocal_ = rowTmpFloatBuf_.Get<float>();
     ipcSliceSize = IPC_DATA_SIZE / worldSize_;
     ipcSliceNodeSize = ipcSliceSize * SERVER_RANK_SIZE;
     LocalTensor<ExpandIdxType> sendCountLocal = sendCountBuf_.Get<int32_t>();
     DataCopy(sendCountLocal, sendCountGlobal_, RoundUp(moeExpertNum_ * worldSize_, B32_PER_BLOCK));
     SyncFunc<AscendC::HardEvent::MTE2_S>();
-    AscendC::DumpTensor(sendCountLocal, 368, 32);
     for (uint32_t dstRankId = startRankId_; dstRankId < endRankId_; ++dstRankId) {
         // dstRankId 在本机上的同号卡
         uint32_t targetRank = dstRankId % SERVER_RANK_SIZE;
@@ -584,6 +582,8 @@ __aicore__ inline void MoeDistributeCombineA2Layered<TemplateMC2TypeA2layeredFun
     if (coreIdx_ == 0U) {
         HcclHandle handleId = hccl_.BatchWrite<true>((GM_ADDR)(workspaceGlobal_.GetPhyAddr()), serverNum);
         bufferIdGlobal_(0) = bufferId_ ^ 1;
+        DataCacheCleanAndInvalid<uint32_t, AscendC::CacheLine::SINGLE_CACHE_LINE, AscendC::DcciDst::CACHELINE_OUT>(
+            bufferIdGlobal_);
     }
     if (coreIdx_ == (rankId_ / SERVER_RANK_SIZE)) {
         uint64_t srcrdmaAddr = (uint64_t)(hccl_.GetWindowsOutAddr(rankId_) +
