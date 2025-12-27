@@ -202,30 +202,34 @@ private:
         }
 
         int totalRounds = round;
-        for (int tr = 0; tr < rankSize; ++tr) {
-            for (int rBase = 0; rBase < totalRounds; rBase += batchRounds) {
-                int currentBatch = (rBase + batchRounds > totalRounds) ? (totalRounds - rBase) : batchRounds;
-                for (int r = 0; r < currentBatch; ++r) {
-                    int absRound = rBase + r;
-                    for (int le = 0; le < localExpertsNum; ++le) {
-                        int globalExpertIdx = tr * localExpertsNum + le;
-                        int srcIdx = (absRound * numExperts + globalExpertIdx) * sendPerGroup;
-                        int dstIdx = (r * localExpertsNum + le) * sendPerGroup;
-                        newSendDataTensor(dstIdx) = sendDataTensor(srcIdx);
-                        newSendDataTensor(dstIdx + 1) = sendDataTensor(srcIdx + 1);
-                        newSendDataTensor(dstIdx + 2) = sendDataTensor(srcIdx + 2);
+        if (round > 1) {
+            for (int tr = 0; tr < rankSize; ++tr) {
+                for (int rBase = 0; rBase < totalRounds; rBase += batchRounds) {
+                    int currentBatch = (rBase + batchRounds > totalRounds) ? (totalRounds - rBase) : batchRounds;
+                    for (int r = 0; r < currentBatch; ++r) {
+                        int absRound = rBase + r;
+                        for (int le = 0; le < localExpertsNum; ++le) {
+                            int globalExpertIdx = tr * localExpertsNum + le;
+                            int srcIdx = (absRound * numExperts + globalExpertIdx) * sendPerGroup;
+                            int dstIdx = (r * localExpertsNum + le) * sendPerGroup;
+                            newSendDataTensor(dstIdx) = sendDataTensor(srcIdx);
+                            newSendDataTensor(dstIdx + 1) = sendDataTensor(srcIdx + 1);
+                            newSendDataTensor(dstIdx + 2) = sendDataTensor(srcIdx + 2);
+                        }
                     }
+                    AscendC::SetFlag<HardEvent::S_MTE3>(EVENT_ID0);
+                    AscendC::WaitFlag<HardEvent::S_MTE3>(EVENT_ID0);
+                    uint32_t copyLen = currentBatch * localExpertsNum * sendPerGroup * sizeof(int32_t);
+                    DataCopyExtParams copyParams = {1U, copyLen, 0U, 0U, 0U};
+                    uint64_t gmOffset = (uint64_t)tr * totalRounds * localExpertsNum * sendPerGroup +
+                                        (uint64_t)rBase * localExpertsNum * sendPerGroup;
+                    DataCopyPad(sendDataInputGt[gmOffset], newSendDataTensor[0], copyParams);
+                    AscendC::SetFlag<HardEvent::MTE3_S>(EVENT_ID0);
+                    AscendC::WaitFlag<HardEvent::MTE3_S>(EVENT_ID0);
                 }
-                AscendC::SetFlag<HardEvent::S_MTE3>(EVENT_ID0);
-                AscendC::WaitFlag<HardEvent::S_MTE3>(EVENT_ID0);
-                uint32_t copyLen = currentBatch * localExpertsNum * sendPerGroup * sizeof(int32_t);
-                DataCopyExtParams copyParams = {1U, copyLen, 0U, 0U, 0U};
-                uint64_t gmOffset = (uint64_t)tr * totalRounds * localExpertsNum * sendPerGroup +
-                                    (uint64_t)rBase * localExpertsNum * sendPerGroup;
-                DataCopyPad(sendDataInputGt[gmOffset], newSendDataTensor[0], copyParams);
-                AscendC::SetFlag<HardEvent::MTE3_S>(EVENT_ID0);
-                AscendC::WaitFlag<HardEvent::MTE3_S>(EVENT_ID0);
             }
+        } else {
+            DataCopyPad(sendDataInputGt, sendDataTensor, {1U, sendDataAlignLen, 0U, 0U, 0U});
         }
         DataCopyExtParams sendDataOffsetParams = {1U, sendDataOffsetAlignLen, 0U, 0U, 0U};
         DataCopyPad(sendDataOffsetOutputGt, sendDataOffsetTensor, sendDataOffsetParams);
