@@ -71,6 +71,7 @@ constexpr uint64_t DOUBLE_DATA_BUFFER = 2UL;
 constexpr uint64_t MAX_OUT_DTYPE_SIZE = 2UL;
 constexpr uint64_t UB_ALIGN = 32UL;
 constexpr int64_t DISPATCH_STATUS_MAX_SUPPORT_NUM = 1280UL;
+constexpr uint64_t INIT_TILINGKEY = 10000UL;
 
 enum class CommQuantMode : int32_t { NON_QUANT = 0, INT12_QUANT = 1, INT8_QUANT = 2 };
 using CommQuantModeType = std::underlying_type<CommQuantMode>;
@@ -530,19 +531,20 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
     uint64_t epWorldSize = static_cast<uint64_t>(tilingData->camMoeCombineNormalInfo.epWorldSize);
     uint64_t k = static_cast<uint64_t>(tilingData->camMoeCombineNormalInfo.k);
     uint64_t perRoundTokens = tilingData->camMoeCombineNormalInfo.perRoundTokens;
+    uint64_t realMaxBs = tilingData->camMoeCombineNormalInfo.realMaxBs;
+    uint64_t realBs = std::min(perRoundTokens, realMaxBs);
     // combine数据区 token首地址对齐512
     uint64_t tokenNeedSizeCombine = ((h * MAX_OUT_DTYPE_SIZE + WIN_ADDR_ALIGN - 1UL) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
-    uint64_t actualSize =
-        (perRoundTokens * k * tokenNeedSizeCombine + COMBINE_STATE_WIN_OFFSET + NOTIFY_DISPATCH_WIN_OFFSET) *
-        DOUBLE_DATA_BUFFER;
+    uint64_t actualSize = (realBs * k * tokenNeedSizeCombine + COMBINE_STATE_WIN_OFFSET + NOTIFY_DISPATCH_WIN_OFFSET) *
+                          DOUBLE_DATA_BUFFER;
     OP_TILING_CHECK(
         (actualSize > maxWindowSize),
         OP_LOGE(nodeName,
-                "HCCL_BUFFSIZE is too SMALL, perRoundTokens = %lu, h = %lu, epWorldSize = %lu, localMoeExpertNum = %u,"
+                "HCCL_BUFFSIZE is too SMALL, realBs = %lu, h = %lu, epWorldSize = %lu, localMoeExpertNum = %u,"
                 " tokenNeedSizeCombine = %lu, k = %lu, NEEDED_HCCL_BUFFSIZE("
-                "((perRoundTokens * k * tokenNeedSizeCombine)) + 8MB + 102MB) * 2) = %luMB, "
+                "((realBs * k * tokenNeedSizeCombine)) + 4MB + 204MB) * 2) = %luMB, "
                 "HCCL_BUFFSIZE=%luMB.",
-                perRoundTokens, h, epWorldSize, localMoeExpertNum, tokenNeedSizeCombine, k, actualSize / MB_SIZE + 1UL,
+                realBs, h, epWorldSize, localMoeExpertNum, tokenNeedSizeCombine, k, actualSize / MB_SIZE + 1UL,
                 maxWindowSize / MB_SIZE),
         return ge::GRAPH_FAILED);
     tilingData->camMoeCombineNormalInfo.totalWinSize = maxWindowSize;
@@ -567,6 +569,14 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
     context->SetScheduleMode(1);  // 设置为batch mode模式，所有核同时启动
     OP_LOGD(nodeName, "blockdim = %u, aivNum = %lu, ubsize = %lu", blockDim, aivNum, ubSize);
     PrintTilingDataInfo(nodeName, *tilingData);
+
+    uint64_t tilingKey = INIT_TILINGKEY;
+    uint32_t maxRound = tilingData->camMoeCombineNormalInfo.maxRound;
+    if (maxRound > 1) {
+        tilingKey += 1;
+    }
+    OP_LOGD(nodeName, "tilingKey is %lu", tilingKey);
+    context->SetTilingKey(tilingKey);
 
     return ge::GRAPH_SUCCESS;
 }
