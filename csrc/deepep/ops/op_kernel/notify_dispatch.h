@@ -409,21 +409,18 @@ private:
 
     __aicore__ inline void BuildTotalRecvTokens()
     {
-        // 只需要sendCountTensor
         if (blockIdx != TOTAL_CNT_CORE) {
             return;
         }
 
-        ReorderSendCountOutput();  // 这里消耗32 KB ；还剩 32； 这个函数里用例recvDataTensor_消耗96tensor  // 这里
-                                   // 共消耗 128
+        ReorderSendCountOutput();
         pipe.InitBuffer(tmpBuf_, UB_ALIGN_SIZE);
-        pipe.InitBuffer(tmpBuf2_, Ceil(round * numExperts * sizeof(float), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);  // 32KB
+        pipe.InitBuffer(tmpBuf2_, Ceil(round * numExperts * sizeof(float), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
 
         LocalTensor<int32_t> totalCntLt = tmpBuf_.Get<int32_t>();
         LocalTensor<float> floatExpTokenCntLt = tmpBuf2_.Get<float>();
-        LocalTensor<float> floatExpTokenSumCntLt = sendCountBuf.Get<float>();  // 复用32 的，？ 直接复用试试
-        LocalTensor<float> sharedTmpBuffer =
-            recvDataBuf.Get<float>();  // 复用 96的 ；需要清0 么？？？？不需要， 直接复用
+        LocalTensor<float> floatExpTokenSumCntLt = sendCountBuf.Get<float>();
+        LocalTensor<float> sharedTmpBuffer = recvDataBuf.Get<float>();
 
         SyncFunc<AscendC::HardEvent::S_V>();
         Cast(floatExpTokenCntLt, sendCountTensor, RoundMode::CAST_NONE, round * numExperts);

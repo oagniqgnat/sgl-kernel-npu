@@ -36,7 +36,6 @@ __aicore__ inline void SyncFunc()
 #define TemplateMC2TypeFunc RecvXType, XType, SrcInfoType
 
 using namespace AscendC;
-using namespace Moe;
 template <TemplateMC2TypeClass>
 class CamMoeCombineNormalMultiRound
 {

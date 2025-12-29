@@ -71,7 +71,7 @@ constexpr uint64_t DOUBLE_DATA_BUFFER = 2UL;
 constexpr uint64_t MAX_OUT_DTYPE_SIZE = 2UL;
 constexpr uint64_t UB_ALIGN = 32UL;
 constexpr int64_t DISPATCH_STATUS_MAX_SUPPORT_NUM = 1280UL;
-constexpr uint64_t INIT_TILINGKEY = 10000;
+constexpr uint64_t INIT_TILINGKEY = 10000UL;
 
 enum class CommQuantMode : int32_t { NON_QUANT = 0, INT12_QUANT = 1, INT8_QUANT = 2 };
 using CommQuantModeType = std::underlying_type<CommQuantMode>;
@@ -542,7 +542,7 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
         OP_LOGE(nodeName,
                 "HCCL_BUFFSIZE is too SMALL, realBs = %lu, h = %lu, epWorldSize = %lu, localMoeExpertNum = %u,"
                 " tokenNeedSizeCombine = %lu, k = %lu, NEEDED_HCCL_BUFFSIZE("
-                "((perRoundTokens * k * tokenNeedSizeCombine)) + 8MB + 102MB) * 2) = %luMB, "
+                "((realBs * k * tokenNeedSizeCombine)) + 4MB + 204MB) * 2) = %luMB, "
                 "HCCL_BUFFSIZE=%luMB.",
                 realBs, h, epWorldSize, localMoeExpertNum, tokenNeedSizeCombine, k, actualSize / MB_SIZE + 1UL,
                 maxWindowSize / MB_SIZE),
