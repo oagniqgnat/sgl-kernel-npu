@@ -48,6 +48,7 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
     this->shared_expert_rank_num = get_value_from_env("MOE_SHARED_EXPERT_RANK_NUM", 0);
     const char *roundEnv = std::getenv("DEEPEP_NORMAL_LONG_SEQ_ROUND");
     const char *tokensEnv = std::getenv("DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS");
+    this->combine_enable_long_seq = get_value_from_env("DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ", 0);
     bool roundSet = (roundEnv != nullptr);
     bool tokensSet = (tokensEnv != nullptr);
 
@@ -148,9 +149,10 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     */
     auto send_token_idx_small = at::zeros({num_tokens, num_topk}, at::dtype(at::kInt).device(device));
     auto notify_send_data = at::zeros({notify_send_data_size}, at::dtype(at::kInt).device(device));
+    int32_t rank_id = static_cast<int>(rank);
     EXEC_NPU_CMD(aclnnDispatchLayout, new_topk_idx, num_tokens, num_ranks, num_experts, num_topk, local_ranksize,
-                 per_round_tokens, num_tokens_per_rank, num_tokens_per_expert, is_token_in_rank, notify_send_data,
-                 send_token_idx_small);
+                 per_round_tokens, rank_id, num_tokens_per_rank, num_tokens_per_expert, is_token_in_rank,
+                 notify_send_data, send_token_idx_small);
 
     this->notify_send_data = notify_send_data;
     this->send_token_idx_small = send_token_idx_small;
@@ -546,7 +548,6 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
     }
 
     auto topk_idx_int32 = topk_idx_p.to(at::kInt);
-    at::Tensor expand_ids = topk_idx_int32;
     at::Tensor token_src_info = src_idx;
     at::Tensor ep_send_counts = send_head;
     auto device = x.device();
@@ -602,9 +603,11 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
     std::optional<torch::Tensor> recv_topk_weights;
     std::optional<EventHandle> event;
 
-    EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, tp_send_counts,
-                 hcom_ep_name, num_ranks, rank, hcom_ep_name, tp_world_size, tp_rankId, moe_expert_number, real_max_bs,
-                 round, per_round_tokens, combined_x, combine_send_cost_stats_out);
+    int32_t round = this->combine_enable_long_seq ? this->round : 1;
+    int32_t per_round_tokens = this->combine_enable_long_seq ? this->per_round_tokens : MAX_TOKENS_PER_ROUND;
+    EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, topk_idx_int32,
+                 tp_send_counts, hcom_ep_name, num_ranks, rank, hcom_ep_name, tp_world_size, tp_rankId,
+                 moe_expert_number, real_max_bs, round, per_round_tokens, combined_x, combine_send_cost_stats_out);
 
     if (this->is_padding) {
         if (this->padding_cnt == PADDING_SIZE) {
@@ -935,17 +938,18 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         this->new_topk_idx = torch::cat(topk_blocks, 0);
     }
 
+    EP_HOST_ASSERT(num_max_dispatch_tokens_per_rank >= new_x.size(0));
+
     auto num_tokens = static_cast<int>(new_x.size(0)), hidden = static_cast<int>(new_x.size(1));
     auto num_scales = hidden / 128, num_topk = static_cast<int>(new_topk_idx.size(1));
-    auto num_local_experts = num_experts / (num_ranks - shared_expert_rank_num);
-
-    int64_t global_bs = std::max(new_topk_idx.size(0), num_max_dispatch_tokens_per_rank) * num_ranks;
+    int32_t num_local_experts = num_experts / (num_ranks - shared_expert_rank_num);
+    int64_t global_bs = num_max_dispatch_tokens_per_rank * num_ranks;
     auto num_max_tokens = 0;
     if (rank < shared_expert_rank_num) {
         num_max_tokens = global_bs / shared_expert_rank_num;
         num_local_experts = 1;
     } else {  // moe expert
-        num_max_tokens = global_bs * num_local_experts;
+        num_max_tokens = global_bs * std::min(num_topk, num_local_experts);
     }
     auto max_size = std::max(num_tokens * num_topk, num_max_tokens * 128);
 
@@ -1056,6 +1060,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     }
     // Tensor checks
     EP_HOST_ASSERT(x.dim() == 2 and x.is_contiguous() and x.scalar_type() == at::kBFloat16);
+    EP_HOST_ASSERT(num_max_dispatch_tokens_per_rank >= new_idx.size(0));
     // EP_HOST_ASSERT(x.size(0) == num_experts / num_ranks);
 
     // get ep & tp name
@@ -1079,7 +1084,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     int64_t tp_world_size = 1;
     int64_t tp_rankId = 0;
     int64_t expert_shared_type = 0;
-    int64_t global_bs = std::max(new_idx.size(0), num_max_dispatch_tokens_per_rank) * num_ranks;
+    int64_t global_bs = num_max_dispatch_tokens_per_rank * num_ranks;
     int64_t out_dtype = 0;
     int64_t comm_quant_mode = 0;
     int64_t group_list_type = 0;
