@@ -72,17 +72,14 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "bgmv_expand(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y,"
         "            int slice_offset, int slice_size) -> Tensor");
 
-    m.def(
-        "bgmv_shrink(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y,"
-        "            float scale) -> ()");
+    m.def("bgmv_shrink(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y, float scale) -> ()");
 
     m.def(
         "sgmv_expand(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y,"
         "            int slice_offset, int slice_size) -> Tensor");
 
     m.def(
-        "sgmv_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y,"
-        " float scale) -> ()");
+        "sgmv_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y, float scale) -> ()");
 
     m.def(
         "sgemmv_expand(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! lora_ranks,"
@@ -99,14 +96,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor(b!)? intermediate_state=None, Tensor? cache_indices=None, "
         "Tensor? num_accepted_tokens=None, Tensor? g=None, Tensor? gk=None) -> Tensor");
 
-    m.def(
-        "sgemmc_expand(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! lora_ranks,"
-        "              Tensor! sliceOffsets, Tensor! y) -> Tensor");
-
-    m.def(
-        "sgemmc_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! lora_ranks,"
-        "              Tensor! lora_scales, Tensor! y) -> ()");
-
 #ifdef BUILD_CATLASS_MODULE
     m.def("catlass_matmul_basic(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, str? format_mode=None) -> ()");
 #endif
@@ -117,10 +106,11 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "str? layout_query=None, str? layout_key=None, "
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 
+    m.def("apply_token_bitmask(Tensor logits, Tensor bitmask, Tensor? indices=None) -> Tensor");
     m.def("triangular_inverse(Tensor x) -> Tensor");
 
     m.def(
-        "causal_conv1d_update(Tensor x, Tensor weight, Tensor conv_state, "
+        "causal_conv1d_update(Tensor x, Tensor weight, Tensor(a!) conv_state, "
         "Tensor conv_state_indices, Tensor? bias=None, Tensor? num_accepted_tokens=None, "
         "Tensor? query_start_loc=None, bool activation_mode=False, int pad_slot_id=-1) -> Tensor");
 
@@ -166,10 +156,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("recurrent_gated_delta_rule", TORCH_FN(sglang::npu_kernel::recurrent_gated_delta_rule));
 
-    m.impl("sgemmc_expand", TORCH_FN(sglang::npu_kernel::sgemmc_expand));
-
-    m.impl("sgemmc_shrink", TORCH_FN(sglang::npu_kernel::sgemmc_shrink));
-
 #ifdef BUILD_CATLASS_MODULE
     m.impl("catlass_matmul_basic", TORCH_FN(sglang::npu_kernel::catlass_matmul_basic));
 #endif
@@ -177,6 +163,11 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
 
     m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
+
+    m.impl("apply_token_bitmask", [](at::Tensor logits, at::Tensor bitmask, const c10::optional<at::Tensor> &indices) {
+        auto indices_or_empty = indices.has_value() ? *indices : at::empty({0}, logits.options().dtype(at::kInt));
+        return sglang::npu_kernel::apply_token_bitmask(logits, bitmask, indices_or_empty);
+    });
 
     m.impl("causal_conv1d_update",
            [](const at::Tensor &x, const at::Tensor &weight, const at::Tensor &conv_state,
